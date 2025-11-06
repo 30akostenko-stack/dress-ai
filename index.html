@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DressAI — Рисуй платье, получай отзыв</title>
+  <style>
+    :root{
+      --bg1:#0b1020; --bg2:#08122a; --card:#0f1930; --accent:#ff7bb0; --accent2:#ffd46a; --muted:#9fb0c8; --glass:rgba(255,255,255,0.04)
+    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;font-family:Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;color:#eaf6ff;background:linear-gradient(180deg,var(--bg1) 0%, var(--bg2) 60%);display:flex;align-items:center;justify-content:center;padding:28px}
+    .wrap{width:1100px;max-width:98%;display:grid;grid-template-columns:380px 1fr;gap:20px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:16px;padding:18px;border:1px solid rgba(255,255,255,0.03);box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+    h1{margin:0;color:var(--accent);font-size:20px}
+    .sub{color:var(--muted);font-size:13px;margin-top:6px}
+
+    /* drawing area */
+    .draw-area{display:flex;flex-direction:column;gap:12px;align-items:center}
+    canvas.pixel{width:320px;height:420px;background:linear-gradient(180deg,#0c1628,#081224);image-rendering:pixelated;border-radius:12px;border:6px solid rgba(0,0,0,0.3)}
+    .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .palette{display:flex;gap:6px;align-items:center}
+    .swatch{width:30px;height:30px;border-radius:6px;border:2px solid rgba(255,255,255,0.04);cursor:pointer}
+    .btn{background:linear-gradient(180deg,var(--accent) 0%, #ff5f99 100%);border:none;padding:8px 12px;border-radius:10px;color:#061226;font-weight:700;cursor:pointer}
+    .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    label.small{font-size:13px;color:var(--muted)}
+
+    /* right column */
+    .stage{display:flex;gap:14px}
+    .preview{width:260px;background:linear-gradient(180deg,#081424,#071022);padding:12px;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:10px}
+    .preview canvas{width:200px;height:320px;image-rendering:pixelated;border-radius:8px;background:#071022}
+    .feedback{flex:1;display:flex;flex-direction:column;gap:10px}
+    .feedback .box{background:var(--glass);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.02)}
+    .score{font-size:38px;color:var(--accent);font-weight:800}
+    .comment{white-space:pre-wrap;color:#eaf6ff}
+    footer{color:var(--muted);font-size:13px;margin-top:8px;text-align:center}
+
+    @media (max-width:1000px){ .wrap{grid-template-columns:1fr; } .stage{flex-direction:column} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Dress AI</h1>
+      <div class="sub">Нарисуй платье — наша "ИИ-оценка" даст отзыв и советы по стилю.</div>
+
+      <div style="height:12px"></div>
+      <div class="draw-area">
+        <canvas id="draw" class="pixel" width="64" height="84"></canvas>
+        <div class="tools">
+          <div class="palette" id="palette"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="brush" class="btn">Кисть</button>
+            <button id="eraser" class="btn ghost">Ластик</button>
+            <button id="clear" class="btn ghost">Очистить</button>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button id="savePng" class="btn ghost">Скачать PNG</button>
+            <button id="evaluate" class="btn">Оценить (ИИ)</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;width:100%;justify-content:space-between;align-items:center">
+          <label class="small">Кисть: <span id="brushSize">1</span>px</label>
+          <input id="sizeRange" type="range" min="1" max="4" value="1" />
+        </div>
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="sub">Подсказка: рисуй силуэт сверху (плечи наверху), делай симметрично — так оценка будет лучше.</div>
+    </div>
+
+    <div class="card">
+      <div class="stage">
+        <div class="preview">
+          <canvas id="preview" width="48" height="64"></canvas>
+          <div style="text-align:center;color:var(--muted);font-size:13px">Превью (увеличено)</div>
+        </div>
+
+        <div class="feedback">
+          <div class="box">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="font-size:14px;color:var(--muted)">Оценка стиля</div>
+                <div class="score" id="score">—</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;color:var(--muted)">Тип: <strong id="type">—</strong></div>
+                <div style="font-size:13px;color:var(--muted)">Цвет: <strong id="color">—</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="box">
+            <div style="font-size:14px;color:var(--muted);margin-bottom:6px">Комментарий ИИ</div>
+            <div class="comment" id="comment">Нажмите "Оценить (ИИ)", чтобы получить отзыв.</div>
+          </div>
+
+          <div class="box" style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+            <div style="font-size:13px;color:var(--muted)">Поделиться отзывом</div>
+            <div>
+              <button id="copyBtn" class="btn ghost">Копировать</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <footer>Красивое оформление + дружелюбный ИИ. Хочешь — добавлю подсказки по ткани и силуэту.</footer>
+    </div>
+  </div>
+
+<script>
+// ---------- Init drawing canvas ----------
+const draw = document.getElementById('draw');
+const dctx = draw.getContext('2d');
+const PREW = document.getElementById('preview');
+const pctx = PREW.getContext('2d');
+const PIX_W = draw.width; const PIX_H = draw.height;
+const paletteEl = document.getElementById('palette');
+const colors = ['#ffffff','#ffb6d5','#ff7bb0','#ff3b6f','#ffd46a','#6be3ff','#7aff8a','#a88bff','#222']
+let color = colors[2];
+let tool = 'brush';
+let brushSize = 1;
+
+// nice background grid
+function initCanvas(){ dctx.fillStyle='#000000'; dctx.fillRect(0,0,PIX_W,PIX_H); dctx.imageSmoothingEnabled=false; pctx.imageSmoothingEnabled=false; }
+initCanvas();
+
+// build palette
+colors.forEach(c=>{ const b=document.createElement('div'); b.className='swatch'; b.style.background=c; b.title=c; b.onclick=()=>{ color=c; document.querySelectorAll('.swatch').forEach(s=>s.style.outline=''); b.style.outline='3px solid rgba(255,255,255,0.08)'; }; paletteEl.appendChild(b); });
+// select first
+paletteEl.firstChild.click();
+
+// pointer draw
+let drawing=false;
+draw.addEventListener('pointerdown', e=>{ drawing=true; paint(e); });
+window.addEventListener('pointerup', ()=> drawing=false);
+draw.addEventListener('pointermove', e=>{ if(drawing) paint(e); });
+
+function paint(e){ const r=draw.getBoundingClientRect(); const x = Math.floor((e.clientX - r.left)/(r.width/PIX_W)); const y = Math.floor((e.clientY - r.top)/(r.height/PIX_H)); if(x<0||y<0||x>=PIX_W||y>=PIX_H) return; dctx.fillStyle = (tool==='brush'?color:'#000000'); for(let dx=0;dx<brushSize;dx++){ for(let dy=0;dy<brushSize;dy++){ const tx = x+dx; const ty = y+dy; if(tx>=0 && ty>=0 && tx<PIX_W && ty<PIX_H) dctx.fillRect(tx,ty,1,1); } } renderPreview(); }
+
+// controls
+document.getElementById('brush').onclick = ()=>{ tool='brush'; document.getElementById('brush').classList.remove('ghost'); document.getElementById('eraser').classList.add('ghost'); };
+document.getElementById('eraser').onclick = ()=>{ tool='eraser'; document.getElementById('eraser').classList.remove('ghost'); document.getElementById('brush').classList.add('ghost'); };
+document.getElementById('clear').onclick = ()=>{ initCanvas(); renderPreview(); };
+document.getElementById('sizeRange').oninput = e=>{ brushSize = parseInt(e.target.value); document.getElementById('brushSize').textContent = brushSize; };
+
+// preview
+function renderPreview(){ // copy scaled image to preview (centered)
+  pctx.fillStyle='#071022'; pctx.fillRect(0,0,PREW.width,PREW.height);
+  pctx.drawImage(draw,0,0,PREW.width,PREW.height);
+}
+renderPreview();
+
+// save
+document.getElementById('savePng').onclick = ()=>{
+  const link = document.createElement('a'); link.download = 'dress.png'; link.href = draw.toDataURL(); link.click();
+}
+
+// ---------- Evaluation logic (heuristics, friendly AI-like) ----------
+function analyzeDress(){
+  // get pixel data
+  const data = dctx.getImageData(0,0,PIX_W,PIX_H).data;
+  // stats
+  let coloredPixels=0; const colorCount = {};
+  for(let i=0;i<data.length;i+=4){ const r=data[i], g=data[i+1], b=data[i+2], a=data[i+3]; if(a>20 && !(r===0&&g===0&&b===0)){ coloredPixels++; const hex = rgbToHex(r,g,b); colorCount[hex] = (colorCount[hex]||0)+1; } }
+  // dominant color
+  const dominant = Object.keys(colorCount).sort((a,b)=>colorCount[b]-colorCount[a])[0] || null;
+  // symmetry: compare left-right
+  let sym=0, total=0;
+  for(let y=0;y<PIX_H;y++){ for(let x=0;x<PIX_W/2;x++){ const i = (y*PIX_W + x)*4; const j = (y*PIX_W + (PIX_W-1-x))*4; const a1 = data[i+3], a2 = data[j+3]; if(a1>20 || a2>20){ total++; if( (a1>20) === (a2>20) ) sym++; } } }
+  const symScore = total? Math.round(100*sym/total) : 0;
+  // skirt vs top: measure fill density in top 30% vs bottom 50%
+  const top = Math.floor(PIX_H*0.15); const waist = Math.floor(PIX_H*0.35); const bottom = PIX_H; let topFill=0, botFill=0;
+  for(let y=0;y<PIX_H;y++){ for(let x=0;x<PIX_W;x++){ const i=(y*PIX_W+x)*4; if(data[i+3]>20){ if(y<=waist) topFill++; else botFill++; } } }
+  const skirtRatio = (botFill + 1) / (topFill + 1);
+  // neckline detection: check center top pixels
+  const centerX = Math.floor(PIX_W/2);
+  let necklineCount=0;
+  for(let y=0;y<Math.floor(PIX_H*0.18);y++){ for(let dx=-2;dx<=2;dx++){ const x = centerX + dx; const i=(y*PIX_W + x)*4; if(data[i+3]>20) necklineCount++; } }
+  // pattern complexity: color variety
+  const colorVariety = Object.keys(colorCount).length;
+
+  // compute score
+  let score = 50;
+  score += Math.min(20, Math.round((symScore-50)/2)); // symmetry bonus
+  if(skirtRatio>1.8) score += 10; // clear skirt
+  else if(skirtRatio>1.2) score += 4;
+  if(colorVariety<=1) score += 5; else if(colorVariety<=3) score += 2; else score -= 4;
+  if(narrow(width=0)){} // placeholder to avoid lint
+  score = Math.max(0, Math.min(100, score));
+
+  // build comment
+  const comments = [];
+  if(dominant) comments.push(`Доминирующий цвет: ${dominant}`);
+  if(symScore>75) comments.push('Отличная симметрия — это делает силуэт аккуратным.');
+  else if(symScore>50) comments.push('Хорошая симметрия, можно чуть улучшить внизу.');
+  else comments.push('Похоже, рисунок не полностью симметричен — попробуй отражать слева направо.');
+
+  if(skirtRatio>1.5) comments.push('Чётко выраженная юбка — красивый классический силуэт.');
+  else comments.push('Юбка не сильно выражена — попробуй расширить низ для более заметного силуэта.');
+
+  if(nockneck(n=necklineCount)){} // placeholder
+  if(necklineCount>6) comments.push('Есть подробности у выреза — аккуратно и стильно.');
+  else comments.push('Вырез простой — можно добавить украшение или форму выреза.');
+
+  if(colorVariety>4) comments.push('Много цветов — это смело, но следи за гармонией.');
+  else if(colorVariety>1) comments.push('Цветовая палитра сдержанная — выглядит элегантно.');
+  else comments.push('Монохромный образ — минимализм в моде. Можно добавить акцент.');
+
+  // style guess
+  let type = 'Классический';
+  if(skirtRatio>2.2) type = 'Пышное платье';
+  else if(skirtRatio>1.3 && skirtRatio<=2.2) type = 'Платье чулок / А-силуэт';
+  else if(skirtRatio<=1.3) type = 'Приталенное/прямое';
+
+  return {score, dominant, symScore, skirtRatio: Math.round(skirtRatio*10)/10, necklineCount, colorVariety, comments, type};
+}
+
+// helpers
+function rgbToHex(r,g,b){ return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join(''); }
+function nockneck(n){return n;} // dummy
+
+// evaluate button
+document.getElementById('evaluate').onclick = ()=>{
+  const res = analyzeDress();
+  document.getElementById('score').textContent = res.score + '/100';
+  document.getElementById('color').textContent = res.dominant || '—';
+  document.getElementById('type').textContent = res.type;
+  document.getElementById('comment').textContent = res.comments.join('\n\n');
+}
+
+// copy
+document.getElementById('copyBtn').onclick = async ()=>{
+  const text = `Оценка: ${document.getElementById('score').textContent}\nТип: ${document.getElementById('type').textContent}\nЦвет: ${document.getElementById('color').textContent}\n\n${document.getElementById('comment').textContent}`;
+  try{ await navigator.clipboard.writeText(text); alert('Скопировано в буфер обмена'); } catch(e){ alert('Не удалось скопировать'); }
+}
+
+// init preview render loop
+setInterval(()=>{ renderPreview(); }, 300);
+
+</script>
+</body>
+</html>
